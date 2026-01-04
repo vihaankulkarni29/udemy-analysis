@@ -5,6 +5,7 @@ import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.preprocessing import LabelEncoder
 
 warnings.filterwarnings("ignore")
@@ -44,63 +45,98 @@ class UdemyMarketEngine:
             X, y, test_size=0.2
         )
         self.model.fit(self.X_train, self.y_train)
+
+        preds = self.model.predict(self.X_test)
+        self.metrics_ = {
+            "mae": float(mean_absolute_error(self.y_test, preds)),
+            "r2": float(r2_score(self.y_test, preds)),
+        }
+        print(
+            f"[Eval] MAE: {self.metrics_['mae']:.2f} | R^2: {self.metrics_['r2']:.3f}"
+        )
         print("[Train] Done. Ready for predictions.\n")
 
     def analyze_user_idea(self, title, price, subject, level):
         print(f"[Analyze] Course: '{title}'...")
-
-        # Vectorize title
-        title_vec = self.vectorizer.transform([title]).toarray()
-        title_df = pd.DataFrame(title_vec, columns=[f"txt_{i}" for i in range(100)])
-
-        # Encode inputs
-        try:
-            subj_enc = self.le_subject.transform([subject])[0]
-            lvl_enc = self.le_level.transform([level])[0]
-        except ValueError:
-            print("[Warn] Unknown subject or level. Using defaults.")
-            subj_enc = 0
-            lvl_enc = 0
-
-        input_data = pd.DataFrame({
-            "price": [price],
-            "subject_enc": [subj_enc],
-            "level_enc": [lvl_enc],
-        })
-
-        final_input = pd.concat([input_data, title_df], axis=1)
-
-        prediction = self.model.predict(final_input)[0]
-        avg_subs = self.df["num_subscribers"].mean()
-        percentile = (prediction / avg_subs) * 100 if avg_subs else 0.0
+        result = self.predict_course(title=title, price=price, subject=subject, level=level)
 
         print("\n" + "=" * 40)
         print(f"Results for: {title}")
         print("=" * 40)
-        print(f"Predicted Subscribers: {int(prediction):,}")
-        print(f"Market Performance:    {percentile:.1f}% of the average course")
+        print(f"Predicted Subscribers: {result['prediction_int']:,}")
+        print(f"Market Performance:    {result['percentile']:.1f}% of the average course")
 
-        self._give_advice(prediction, price, title)
+        self._print_advice(result["advice"])
 
-    def _give_advice(self, prediction, price, title):
-        print("\nAdvice:")
+    def predict_course(self, title, price, subject, level):
+        """Programmatic prediction interface (no prints)."""
+        final_input = self._prepare_input(title=title, price=price, subject=subject, level=level)
 
-        # Pricing advice
+        prediction = float(self.model.predict(final_input)[0])
+        avg_subs = self.df["num_subscribers"].mean()
+        percentile = (prediction / avg_subs) * 100 if avg_subs else 0.0
+        advice = self._advice_messages(prediction, price, title)
+
+        return {
+            "prediction": prediction,
+            "prediction_int": int(prediction),
+            "percentile": percentile,
+            "advice": advice,
+        }
+
+    def _prepare_input(self, title, price, subject, level):
+        # Vectorize title
+        title_vec = self.vectorizer.transform([title]).toarray()
+        title_df = pd.DataFrame(title_vec, columns=[f"txt_{i}" for i in range(100)])
+
+        # Encode inputs with fallbacks
+        try:
+            subj_enc = int(self.le_subject.transform([subject])[0])
+        except ValueError:
+            print("[Warn] Unknown subject; defaulting to first known subject.")
+            subj_enc = 0
+
+        try:
+            lvl_enc = int(self.le_level.transform([level])[0])
+        except ValueError:
+            print("[Warn] Unknown level; defaulting to first known level.")
+            lvl_enc = 0
+
+        input_data = pd.DataFrame(
+            {
+                "price": [price],
+                "subject_enc": [subj_enc],
+                "level_enc": [lvl_enc],
+            }
+        )
+
+        return pd.concat([input_data, title_df], axis=1)
+
+    def _advice_messages(self, prediction, price, title):
+        advice = []
+
         if price > 50 and prediction < 1000:
-            print(" - Price alert: This looks overpriced for expected reach. Try 19.99 or Free to build audience.")
+            advice.append(
+                "Price alert: Overpriced for expected reach. Try 19.99 or Free to build audience."
+            )
         elif price == 0:
-            print(" - Growth mode: Free courses pull more traffic; have an upsell plan.")
+            advice.append("Growth mode: Free pulls more traffic; ensure an upsell plan.")
 
-        # Title keyword advice
         power_words = ["Bootcamp", "Complete", "Master", "Guide", "Beginner"]
         if not any(word.lower() in title.lower() for word in power_words):
-            print(f" - Title optimization: Try adding one of {power_words}.")
+            advice.append(f"Title optimization: add one of {power_words}.")
 
-        # Validation
         if prediction > 5000:
-            print(" - Winner: This setup resembles a best seller.")
+            advice.append("Winner: resembles a best seller.")
         else:
-            print(" - Risk: Expect competition or lower demand; iterate on title/price/positioning.")
+            advice.append("Risk: competition or low demand; iterate on title/price/positioning.")
+
+        return advice
+
+    def _print_advice(self, advice):
+        print("\nAdvice:")
+        for msg in advice:
+            print(f" - {msg}")
 
 
 if __name__ == "__main__":
