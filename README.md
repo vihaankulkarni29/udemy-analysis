@@ -33,7 +33,9 @@ udemy-analysis/
 ├── udemy_courses.csv       # Kaggle dataset (3.6k+ courses)
 ├── requirements.txt        # Dependencies
 ├── .streamlit/config.toml  # Custom theming
-└── outputs/                # Generated visualizations
+├── outputs/                # All PNG visualizations (22 images)
+├── notebooks/              # Jupyter demo notebooks (19 files)
+└── scripts/                # Visualization generation scripts (17 files)
 ```
 
 **Tech Stack**:
